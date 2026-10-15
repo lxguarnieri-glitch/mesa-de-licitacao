@@ -527,7 +527,7 @@ details.colar .btn{margin-top:8px;align-self:flex-start}
       <button data-view="conf"><svg class="i"><use href="#i-list"/></svg><span>Conferir documentos<small>Habilitação do licitante</small></span></button>
       <button data-view="docs"><svg class="i"><use href="#i-doc"/></svg><span>Processos<small>Criar e consultar DFD, ETP e TR</small></span></button>
       <button data-view="cfg"><svg class="i"><use href="#i-shield"/></svg><span>Configurações<small>Órgão, decreto e modelos</small></span></button>
-      <button data-view="nov"><svg class="i"><use href="#i-spark"/></svg><span>Novidades<small>O que mudou na v5.1</small></span></button>
+      <button data-view="nov"><svg class="i"><use href="#i-spark"/></svg><span>Novidades<small>O que mudou na v5.2</small></span></button>
     </nav>
     <div class="me" id="me" hidden></div>
     <button class="tema" id="btnTema" type="button"></button>
@@ -691,7 +691,18 @@ details.colar .btn{margin-top:8px;align-self:flex-start}
       </div>
       <div class="nov">
         <article class="card ver">
-          <h2>Versão 5.1 <span class="tag">atual</span> <small>15/10/2026</small></h2>
+          <h2>Versão 5.2 <span class="tag">atual</span> <small>15/10/2026</small></h2>
+          <dl class="chg"><dt><span class="fix">Corrigido</span></dt><dd><ul>
+            <li><b>Itens de editais e TRs em PDF</b>: quadros com a descrição em várias linhas (acima e abaixo da linha com número, unidade e quantidade) agora são lidos por inteiro. No teste com o edital de material de expediente, saíram 293 dos 298 itens com descrição completa, unidade e quantidade (o Claude completa o resto).</li>
+            <li>Os dados lidos <b>entram no processo</b> mesmo que você siga direto para os dados da compra, sem precisar achar o botão "Aplicar". O botão também aparece no topo, junto da mensagem.</li>
+            <li>Objeto e tipo (bens ou serviço) mais certeiros em editais.</li>
+            <li>Ao colar no Claude por engano o pedido em vez da resposta, o sistema avisa.</li>
+          </ul></dd><dt><span class="add">Adicionado</span></dt><dd><ul>
+            <li><b>"O que fazer com estes documentos?"</b>: escreva o que aproveitar, filtrar ou mudar (ex.: "use só os itens de papelaria", "o novo processo é da Educação") e o Claude segue isso ao completar.</li>
+          </ul></dd></dl>
+        </article>
+        <article class="card ver">
+          <h2>Versão 5.1 <small>15/10/2026</small></h2>
           <dl class="chg"><dt><span class="fix">Corrigido</span></dt><dd><ul>
             <li><b>Leitura de PDF.</b> O texto dos PDFs vinha picado (letras e acentos separados), e por isso itens, setor e outros dados não eram encontrados. Agora o texto sai inteiro e as colunas das tabelas são reconhecidas.</li>
             <li><b>Itens do quadro-resumo do TR</b> (lote, item, descrição, quantidade e unidade) são lidos também quando o PDF não separa as colunas.</li>
@@ -2521,6 +2532,57 @@ function dataDoTexto(t){
   if(!m) return ""; const mes = ["janeiro","fevereiro","marco","abril","maio","junho","julho","agosto","setembro","outubro","novembro","dezembro"].indexOf(m[1]);
   const ult = new Date(+m[2], mes + 1, 0).getDate(); return `${m[2]}-${String(mes + 1).padStart(2, "0")}-${ult}`;
 }
+// quadro de itens de edital/TR em PDF: "ITEM | DESCRIÇÃO | UNID. | QUANT.", com a descrição podendo ficar
+// em linhas acima e abaixo da linha que tem o número, a unidade e a quantidade
+const RX_UNID_CEL = /^(unid(?:ade)?s?\.?|und\.?|un\.?|p[çc]s?\.?|pe[çc]as?|cx\.?|caixas?|pct\.?|pacotes?|resmas?|blocos?|kg|g|l|litros?|ml|m[²³23]?|metros?|kits?|conjuntos?|cj\.?|jogos?|pares?|rolos?|frascos?|gal[õo]es?|servi[çc]os?|meses|m[êe]s|horas?|di[áa]rias?|lotes?|licen[çc]as?|postos?|tubos?|potes?|cartelas?|envelopes?|folhas?|fardos?|sacos?|latas?|bobinas?|cento|milheiro|dz\.?|d[úu]zias?)$/i;
+function itensDeQuadro(arqs){
+  for(const a of arqs){
+    const linhas = a.texto.split("\n").map(l => l.trim());
+    const freq = {}; linhas.forEach(l => { if(l.length > 6) freq[l] = (freq[l] || 0) + 1; });
+    const ehLixo = l => !l || /^--- página/.test(l) || (freq[l] >= 3 && !/\|/.test(l)) || /www\.|@|\(\d{2}\)\s*\d|^p[aá]gina \d|^\d+\s*(de|\/)\s*\d+$/i.test(l);
+    const fim = l => /^\d{1,2}(\.\d{1,2})+\.?\s+[A-ZÀ-Ú]/.test(l) || /^(\d{1,2}\.?\s+)?(DA|DO|DAS|DOS)\s+[A-ZÀ-Ú]{3,}/.test(l) || /^(VALOR|TOTAL GERAL)\b/i.test(l);
+    // 1º passo: sequência de linhas do quadro (linhas com número/unidade/quantidade e linhas só de texto)
+    const seq = []; let dentro = false, semLinha = 0;
+    for(const l of linhas){
+      const L = l.toUpperCase();
+      if(/\bITEM\b/.test(L) && /QUANT|QTD|QTDE/.test(L) && l.length < 200){ dentro = true; semLinha = 0; continue; }
+      if(!dentro || ehLixo(l)) continue;
+      if(!/\|/.test(l) && fim(l)){ if(seq.some(s => s.row)) dentro = false; continue; }
+      if(/\|/.test(l)){
+        const cel = l.split("|").map(c => c.trim()).filter(Boolean), m0 = cel[0]?.match(/^(\d{1,4})(?:\s+(.*))?$/);
+        if(m0){
+          const resto = cel.slice(1), un = resto.find(c => RX_UNID_CEL.test(c)) || "";
+          const nums = resto.filter(c => /^\d{1,3}(\.\d{3})*(,\d+)?$|^\d+$/.test(c)), q = nums[nums.length - 1];
+          if(q){ const txt = [m0[2] || "", ...resto.filter(c => c !== un && c !== q && /[A-Za-zÀ-ú]{3}/.test(c))].join(" ").trim(); seq.push({row:true, n:+m0[1], q, un, txt}); semLinha = 0; continue; }
+        }
+      }
+      seq.push({row:false, l:l.replace(/\s*\|\s*/g, " ")});
+      if(seq.some(s => s.row) && ++semLinha > 40) dentro = false;
+    }
+    const rows = seq.map((s, i) => s.row ? i : -1).filter(i => i >= 0);
+    if(rows.length < 2) continue;
+    // 2º passo: as linhas de texto entre duas linhas do quadro são o fim de um item e o começo do próximo.
+    // A descrição fica centralizada na célula, então o item tem mais ou menos tantas linhas depois quanto antes.
+    const bloco = (i, j) => seq.slice(i, j).filter(s => !s.row).map(s => s.l);
+    const comeca = (l, ant) => /^[A-ZÀ-Ú]/.test(l) && (!ant || /[.:;)]$/.test(ant));
+    const itens = rows.map(i => ({...seq[i], antes:[], depois:[]}));
+    itens[0].antes = itens[0].txt ? [] : bloco(0, rows[0]).slice(-12);
+    for(let k = 0; k < rows.length; k++){
+      const B = bloco(rows[k] + 1, k + 1 < rows.length ? rows[k + 1] : seq.length), it = itens[k], prox = itens[k + 1];
+      let s;
+      if(!prox){ s = it.txt ? 0 : Math.min(B.length, it.antes.length + 1); }
+      else if(prox.txt) s = B.length;                                  // o próximo item já tem descrição na própria linha
+      else if(it.txt){ s = 0; while(s < B.length && /^[a-zà-ú0-9(,;.\-–x]/.test(B[s])) s++; }   // item com descrição na linha: só continuações em minúscula
+      else {
+        const alvo = Math.min(B.length, it.antes.length); s = alvo;
+        for(const d of [0, 1, -1, 2, -2]){ const x = alvo + d; if(x > 0 && x < B.length && comeca(B[x], B[x - 1])){ s = x; break; } }
+      }
+      it.depois = B.slice(0, s); if(prox) prox.antes = B.slice(s);
+    }
+    const out = itens.map(i => ({...i, d:[...i.antes, i.txt, ...i.depois].filter(Boolean).join(" ").replace(/\s{2,}/g, " ").trim()})).filter(i => i.d.length >= 3);
+    if(out.length >= 2) return {v:out.map(i => `${i.q} ${i.un ? normUn(i.un) : "un."} – ${i.d}`).join("\n"), trecho:`quadro com ${plural(out.length, "item", "itens")}`, arquivo:a.nome};
+  }
+}
 // quadro de itens escrito como texto (PDF sem divisão de colunas): "LOTE ITEM DESCRIÇÃO QTD UNIDADE"
 function itensDoTexto(arqs){
   const UN = "(unid(?:ade)?s?\\.?|und\\.?|un\\.?|p[çc]s?\\.?|pe[çc]as?|cx\\.?|caixas?|pct\\.?|pacotes?|resmas?|kg|l|litros?|m[²³23]?|metros?|kits?|conjuntos?|cj\\.?|jogos?|pares?|rolos?|frascos?|gal[õo]es?|servi[çc]os?|meses|m[êe]s|horas?|di[áa]rias?|lotes?|licen[çc]as?|postos?)", Q = "(\\d{1,3}(?:\\\.\\d{3})*(?:,\\d+)?)";
@@ -2555,7 +2617,8 @@ function analisarLocal(arqs){
   busca("cargo", /Elaborado por\s*:[^\n–]+–\s*([^\n|]{3,80})/i);
   busca("email", /E-?mail\s*:\s*([\w.+-]+@[\w-]+(?:\.[\w-]+)+)/i);
   busca("numero", /(?:N[uú]mero do Processo|PROCESSO ADMINISTRATIVO N[ºo°]?|Processo n[ºo°]\.?)\s*:?\s*(\d{1,5}\s*\/\s*\d{4})/i, v => v.replace(/\s/g, ""));
-  busca("objeto", /\bObjeto\s*:\s*([^\n|]{8,300}(?:\n[a-zà-ú][^\n|]{0,200})*)/i, v => v.replace(/\s*\n\s*/g, " "));
+  for(const a of fontes){ if(campos.objeto) break; for(const m of a.texto.matchAll(/\bObjeto\s*:?\s*\n?\s*([^\n|]{15,300}(?:\n[a-zà-ú][^\n|]{0,200})*)/gi)){ const v = m[1].replace(/\s*\n\s*/g, " ").replace(/^\d+(\.\d+)*\.?\s*/, "").replace(/^(cuida-se d[aoe]s?|trata-se d[aoe]s?|o presente [^,]{0,40}?tem (como|por) objeto( a)?)\s*/i, ""); if(/aquisi|contrata|registro de pre|presta[cç]|fornecimento|compra|chamamento/i.test(v) && !/presente termo|abaixo identificad/i.test(v)){ put("objeto", v, m[0], a.nome); break; } } }
+  busca("objeto", /\bObjeto\s*:\s*([^\n|]{8,300}(?:\n[a-zà-ú][^\n|]{0,200})*)/i, v => /presente termo|abaixo identificad/i.test(v) ? "" : v.replace(/\s*\n\s*/g, " "));
   busca("valor", /valor (?:total )?estimado[^\n]{0,80}?R\$\s*([\d.]+,\d{2})/i);
   busca("valor", /TOTAL\s*:?\s*\|?\s*R\$\s*([\d.,]+)/i, v => { const x = parseDinheiro(v); return x ? x.toLocaleString("pt-BR", {minimumFractionDigits:2}) : ""; });
   busca("vigencia", /Vig[eê]ncia[^\n]{0,50}?(\d{1,2})\s*(?:\([a-zç]+\)\s*)?meses/i);
@@ -2571,11 +2634,11 @@ function analisarLocal(arqs){
   busca("criterio", /Crit[eé]rio de Julgamento\s*:\s*([^\n]{3,80})/i, v => /desconto/i.test(v) ? "desconto" : /menor/i.test(v) ? "menor" : "");
   busca("parcelamento", /(parcelamento do objeto em|por lote|lotes? individuais|por item)[^\n]{0,40}/i, (v, m) => /item/i.test(m[0]) ? "item" : "lote");
   busca("pca", /(?:compat[ií]vel com|previst[ao] no|consta do) (?:o )?Plano (?:Anual )?de Contrata[cç][oõ]es/i, () => "sim");
-  const it = itensDasTabelas(fontes) || itensDoTexto(fontes); if(it) put("itens", it.v, it.trecho, it.arquivo);
+  const it = itensDeQuadro(fontes) || itensDasTabelas(fontes) || itensDoTexto(fontes); if(it) put("itens", it.v, it.trecho, it.arquivo);
   const NOME = "[A-ZÀ-Ú][\\wÀ-ú]+(?: (?:e|de|da|do|dos|das) [A-ZÀ-Ú][\\wÀ-ú]+| [A-ZÀ-Ú][\\wÀ-ú]+){0,4}";
   busca("unidade", new RegExp(`\\b((?:Setor|Departamento|Divis[ãa]o|Secretaria(?: Municipal)?) de ${NOME})`));
   busca("diretoria", new RegExp(`\\b(Diretoria(?: Municipal)? de ${NOME})`));
-  { const base = [campos.objeto?.v || "", campos.itens?.v || "", ...fontes.filter(a => ["DFD","ETP","TR"].includes(a.tipo)).map(a => a.texto.slice(0, 3000))].join(" "); const tp = detectarTipo(base); put("tipo", tp, "identificado pelo conteúdo: " + NOME_TIPO[tp], fontes[0]?.nome); }
+  { const base = [campos.objeto?.v || "", campos.itens?.v || "", ...fontes.filter(a => ["DFD","ETP","TR"].includes(a.tipo)).map(a => a.texto.slice(0, 3000))].join(" "); let tp = detectarTipo(base); if(tp !== "bens" && campos.itens && (campos.itens.v.match(/^[\d.,]+ (un\.|cx\.|pct\.|resma|kg|l|peça|kit|par|rolo|conjunto|bloco|frasco|pote|tubo|caixa|pacote)/gim) || []).length >= Math.max(2, campos.itens.v.split("\n").length / 2)) tp = "bens"; put("tipo", tp, "identificado pelo conteúdo: " + NOME_TIPO[tp], fontes[0]?.nome); }
   // textos das seções a partir dos títulos de cada documento
   const textos = {DFD:{}, ETP:{}, TR:{}}; let riscosTxt = "";
   for(const tipo of ["DFD","ETP","TR"]){
@@ -2594,13 +2657,16 @@ function analisarLocal(arqs){
 
 /* ---- cartão de importação ---- */
 function renderImport(){ $("#impBox").innerHTML = cardImport(); }
+let instrImp = "";
+const blocoInstr = () => instrImp.trim() ? `INSTRUÇÕES DO SERVIDOR SOBRE ESTES DOCUMENTOS (siga-as com prioridade; elas dizem o que aproveitar, filtrar ou mudar):\n${instrImp.trim()}\n\n` : "";
 function cardImport(){
   const a = imp?.arquivos || [];
   return `<div class="card fcard imp" id="cardImport"><h3><span class="n">${ico("i-upload")}</span>Importar de documentos que você já tem</h3>
     <p class="muted" style="font-size:13.5px">Envie DFD, ETP, TR, cotações ou a planilha de cálculo de um processo parecido (Word, PDF ou Excel). A página lê os títulos, campos, tabelas, preços e links e propõe o preenchimento. Você confere e aplica.</p>
+    <label class="f full" style="margin:6px 0 12px"><span>O que fazer com estes documentos? <small class="muted">(opcional, o Claude segue o que você escrever)</small></span><textarea id="impInstr" rows="2" placeholder="Ex.: É o pregão do ano passado. Use só os itens de papelaria e atualize as quantidades para metade. O novo processo é da Diretoria de Educação.">${esc(instrImp)}</textarea></label>
     <label class="drop" id="impDrop"><span class="ic">${ico("i-upload")}</span><b>Arraste os arquivos aqui ou clique para escolher</b><span>Pode enviar vários de uma vez</span><input type="file" id="impFiles" multiple accept=".docx,.pdf,.xlsx,.xls,.csv,.txt" hidden></label>
     ${a.length ? `<div class="imp-files">${a.map((x, k) => `<span class="chip">${esc(x.nome)} <small class="muted">${x.tipo}</small><button data-imprm="${k}" aria-label="Tirar ${esc(x.nome)}">${ico("i-x")}</button></span>`).join("")}<button class="link mute" id="impLimpa">Limpar tudo</button></div>` : ""}
-    ${imp?.msg ? `<div class="msg${imp.erro ? " err" : ""}">${imp.msg}</div>` : ""}
+    ${imp?.msg ? `<div class="msg${imp.erro ? " err" : ""}"><span style="flex:1">${imp.msg}</span>${imp?.res && !imp.fase ? `<button class="btn sm pri" data-aplica-topo>${ico("i-check")}Aplicar ao processo</button>` : ""}</div>` : ""}
     ${imp?.res ? revisaoImport() : ""}
   </div>`;
 }
@@ -2629,15 +2695,15 @@ async function completarComClaude(){
   const arqs = imp.arquivos, base = imp.res;
   imp.fase = "lendo"; imp.msg = '<span class="spin"></span> A leitura direta terminou. O Claude está completando sozinho o que faltou (campos e textos). Leva de 1 a 3 minutos; você já pode conferir o que está abaixo.'; renderImport();
   try {
-    const faltam = FORM.flatMap(([,fs]) => fs).filter(x => !base.campos[x[0]]).map(([k,l,type,o]) => `- ${k} (${l})${type === "select" ? ": um destes códigos " + o.filter(x => x[0]).map(x => x[0]).join(" | ") : type === "date" ? ": data AAAA-MM-DD" : ""}`).join("\n");
-    const r1 = await sample.json(`Leia os documentos de um processo de contratação pública e extraia SOMENTE estes campos, se aparecerem:
+    const faltam = FORM.flatMap(([,fs]) => fs).filter(x => !base.campos[x[0]] || (instrImp.trim() && x[0] === "itens")).map(([k,l,type,o]) => `- ${k} (${l})${type === "select" ? ": um destes códigos " + o.filter(x => x[0]).map(x => x[0]).join(" | ") : type === "date" ? ": data AAAA-MM-DD" : ""}`).join("\n");
+    const r1 = await sample.json(`${blocoInstr()}Leia os documentos de um processo de contratação pública e extraia SOMENTE estes campos, se aparecerem:
 ${faltam}
-Para "itens": uma linha por item, "QUANTIDADE descrição". Não invente; omita o que não estiver nos documentos.
+Para "itens": uma linha por item, no formato "QUANTIDADE UNIDADE – descrição" (ex.: "300 un. – Pincel redondo n. 10, amarelo"), seguindo as instruções do servidor se houver (filtrar, agrupar, ajustar quantidades). Não invente; omita o que não estiver nos documentos.
 Responda só com JSON: {"campos":{"campo":{"valor":"","trecho":"","arquivo":""}}}
 
 DOCUMENTOS:${corpus(arqs, "DFD", 30000, 20000, 90000)}`, {cache:false});
     Object.entries(r1?.campos || {}).forEach(([k, x]) => {
-      if(!FIELD[k] || base.campos[k] || !x || x.valor == null || String(x.valor).trim() === "") return;
+      if(!FIELD[k] || (base.campos[k] && !(instrImp.trim() && k === "itens")) || !x || x.valor == null || String(x.valor).trim() === "") return;
       let v = String(x.valor).trim(); if(FIELD[k][2] === "select" && !FIELD[k][3].some(o => o[0] === v)) return; if(FIELD[k][2] === "date") v = normDate(v); if(!v) return;
       if(k === "valor") v = num(v).toLocaleString("pt-BR", {minimumFractionDigits:2});
       base.campos[k] = {v, trecho:String(x.trecho || ""), arquivo:String(x.arquivo || "") + " (Claude)", usar:true};
@@ -2649,8 +2715,8 @@ DOCUMENTOS:${corpus(arqs, "DFD", 30000, 20000, 90000)}`, {cache:false});
       const temDoc = arqs.some(a => a.tipo === d);
       try {
         const r = await sample.json(temDoc
-          ? `No documento ${d} abaixo, copie o texto de cada seção listada (até 5000 caracteres cada), mantendo o conteúdo técnico. Não invente: se não houver, devolva "".\nSEÇÕES:\n${secs.map(([k, t]) => `"${k}": ${t}`).join("\n")}\nResponda só com JSON: {"codigo_da_secao":"texto"}\n\nDOCUMENTO:${corpus(arqs.filter(a => a.tipo === d), d, 60000, 0, 60000)}`
-          : `Com base nos documentos de contratação abaixo (de outros tipos), redija as seções do ${DOCS[d].title} (${DOCS[d].law}) que faltam, aproveitando o que já está escrito neles e adaptando ao formato deste documento. Use só fatos dos documentos; onde faltar dado, escreva [PREENCHER: o que falta]. 1 a 4 parágrafos por seção.\nSEÇÕES:\n${secs.map(([k, t]) => `"${k}": ${t}`).join("\n")}\nResponda só com JSON: {"codigo_da_secao":"texto"}\n\nDOCUMENTOS:${corpus(arqs, "TR", 40000, 15000, 80000)}`, {cache:false});
+          ? `${blocoInstr()}No documento ${d} abaixo, copie o texto de cada seção listada (até 5000 caracteres cada), mantendo o conteúdo técnico. Não invente: se não houver, devolva "".\nSEÇÕES:\n${secs.map(([k, t]) => `"${k}": ${t}`).join("\n")}\nResponda só com JSON: {"codigo_da_secao":"texto"}\n\nDOCUMENTO:${corpus(arqs.filter(a => a.tipo === d), d, 60000, 0, 60000)}`
+          : `${blocoInstr()}Com base nos documentos de contratação abaixo (de outros tipos), redija as seções do ${DOCS[d].title} (${DOCS[d].law}) que faltam, aproveitando o que já está escrito neles e adaptando ao formato deste documento. Use só fatos dos documentos; onde faltar dado, escreva [PREENCHER: o que falta]. 1 a 4 parágrafos por seção.\nSEÇÕES:\n${secs.map(([k, t]) => `"${k}": ${t}`).join("\n")}\nResponda só com JSON: {"codigo_da_secao":"texto"}\n\nDOCUMENTOS:${corpus(arqs, "TR", 40000, 15000, 80000)}`, {cache:false});
         secs.forEach(([k]) => { if(typeof r?.[k] === "string" && r[k].trim()) base.textos[d][k] = r[k].trim(); });
       } catch(e){}
       imp.msg = `<span class="spin"></span> O Claude está completando os textos: ${++feitos} de ${grupos.length} partes…`; const el = $("#cardImport .msg"); if(el) el.innerHTML = imp.msg;
@@ -2687,6 +2753,12 @@ function aplicarImport(){
   imp = {arquivos:[], msg:`Aplicado: ${plural(n, "campo", "campos")}${r.usarTextos ? ", textos" : ""}${r.usarPrecos ? ", preços" : ""}${r.usarRiscos ? ", riscos" : ""}.`};
   S.passo = 2; save(); renderDocs(); window.scrollTo({top:0, behavior:"smooth"});
 }
+$("#impBox").addEventListener("input", e => { if(e.target.id === "impInstr") instrImp = e.target.value; });
+document.addEventListener("click", e => {
+  if(e.target.closest("[data-aplica-topo]") && imp?.res){ aplicarImport(); return; }
+  const p = e.target.closest("[data-passo]");   // ao seguir para os dados da compra sem aplicar, aplica o que foi lido
+  if(p && +p.dataset.passo > 1 && S.passo === 1 && imp?.res && !imp.fase && view === "docs"){ e.stopImmediatePropagation(); aplicarImport(); }
+}, true);
 $("#impBox").addEventListener("change", e => {
   if(e.target.id === "impFiles"){ const files = [...e.target.files]; e.target.value = ""; receberArquivos(files); return; }
   const c = e.target.dataset.impc; if(c && imp?.res) imp.res.campos[c].usar = e.target.checked;
@@ -3824,7 +3896,7 @@ async function anexarComprovantesZip(zip){
 
 
 /* ============ v4.5: retorno dos usuários (problemas e sugestões) ============ */
-const VERSAO_APP = "5.1", errosRecentes = [];
+const VERSAO_APP = "5.2", errosRecentes = [];
 window.addEventListener("error", e => { errosRecentes.push(String(e.message || e).slice(0, 200)); if(errosRecentes.length > 5) errosRecentes.shift(); });
 window.addEventListener("unhandledrejection", e => { errosRecentes.push("promessa: " + String(e.reason?.message || e.reason || "").slice(0, 200)); if(errosRecentes.length > 5) errosRecentes.shift(); });
 let retornos = [], ouvindoRetornos = false;
@@ -4331,6 +4403,7 @@ function proximoManual(){
   const fechar = () => { manualAberto = false; dlg.close(); setTimeout(proximoManual, 50); };
   $("#manOk").onclick = () => {
     const t = $("#manResp").value.trim(); if(!t){ $("#manMsg").className = "msg err"; $("#manMsg").textContent = "Cole a resposta do Claude na caixa."; return; }
+    if(t.length > 400 && (item.prompt.includes(t.slice(0, 300)) || /IMPORTANTE: responda somente com o JSON pedido/.test(t))){ $("#manMsg").className = "msg err"; $("#manMsg").textContent = "O que está na caixa é o PEDIDO, não a resposta. Cole o pedido no claude.ai (passo 2), espere o Claude responder, copie a RESPOSTA dele e cole aqui."; return; }
     if(item.json){ try { lerJSON(t); } catch(e){ $("#manMsg").className = "msg err"; $("#manMsg").textContent = "A resposta não veio completa no formato pedido (JSON). Se o Claude parou no meio, peça a ele \"continue\" e cole a resposta inteira, ou peça de novo."; return; } }
     item.resolve({text:t, truncated:false}); fechar();
   };
