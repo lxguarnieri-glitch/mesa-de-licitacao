@@ -527,7 +527,7 @@ details.colar .btn{margin-top:8px;align-self:flex-start}
       <button data-view="conf"><svg class="i"><use href="#i-list"/></svg><span>Conferir documentos<small>Habilitação do licitante</small></span></button>
       <button data-view="docs"><svg class="i"><use href="#i-doc"/></svg><span>Processos<small>Criar e consultar DFD, ETP e TR</small></span></button>
       <button data-view="cfg"><svg class="i"><use href="#i-shield"/></svg><span>Configurações<small>Órgão, decreto e modelos</small></span></button>
-      <button data-view="nov"><svg class="i"><use href="#i-spark"/></svg><span>Novidades<small>O que mudou na v5.0</small></span></button>
+      <button data-view="nov"><svg class="i"><use href="#i-spark"/></svg><span>Novidades<small>O que mudou na v5.1</small></span></button>
     </nav>
     <div class="me" id="me" hidden></div>
     <button class="tema" id="btnTema" type="button"></button>
@@ -691,7 +691,18 @@ details.colar .btn{margin-top:8px;align-self:flex-start}
       </div>
       <div class="nov">
         <article class="card ver">
-          <h2>Versão 5.0 <span class="tag">atual</span> <small>15/10/2026</small></h2>
+          <h2>Versão 5.1 <span class="tag">atual</span> <small>15/10/2026</small></h2>
+          <dl class="chg"><dt><span class="fix">Corrigido</span></dt><dd><ul>
+            <li><b>Leitura de PDF.</b> O texto dos PDFs vinha picado (letras e acentos separados), e por isso itens, setor e outros dados não eram encontrados. Agora o texto sai inteiro e as colunas das tabelas são reconhecidas.</li>
+            <li><b>Itens do quadro-resumo do TR</b> (lote, item, descrição, quantidade e unidade) são lidos também quando o PDF não separa as colunas.</li>
+            <li>Setor requisitante, diretoria e objeto completo (mesmo quebrado em duas linhas) agora são encontrados.</li>
+          </ul></dd><dt><span class="add">Adicionado</span></dt><dd><ul>
+            <li><b>Usar processo anterior como base</b>: em "Vou descrever o que preciso", um documento enviado como modelo pode ser usado como base. Os itens, o setor, os prazos e os textos dele entram no processo novo para você ajustar.</li>
+            <li>Depois de ler os arquivos, o Claude já é chamado para completar o que faltou (no site de teste, pela janela de copiar e colar).</li>
+          </ul></dd></dl>
+        </article>
+        <article class="card ver">
+          <h2>Versão 5.0 <small>15/10/2026</small></h2>
           <dl class="chg"><dt><span class="add">Adicionado</span></dt><dd><ul>
             <li><b>Claude por copiar e colar (grátis).</b> Onde o Claude não está ligado direto (site de teste e versão para computador), Enriquecer, completar a importação, gerar pela descrição, sugerir lacunas e riscos funcionam assim: o sistema monta o pedido, você copia, cola no claude.ai com a sua conta gratuita e cola a resposta de volta. O enriquecimento pede um documento inteiro de uma vez.</li>
           </ul></dd></dl>
@@ -1105,6 +1116,22 @@ async function textoComOCR(file){
   const {text} = await sample("Transcreva fielmente todo o texto destas páginas digitalizadas de um documento de licitação, na ordem, mantendo títulos, numeração e tabelas (colunas separadas por \" | \"). Responda só com o texto transcrito.", {images:r.images, cache:false});
   return text || "";
 }
+// monta as linhas do PDF pela posição de cada pedaço de texto: junta letras e acentos soltos,
+// separa colunas de tabela com " | " (assim os itens e valores das tabelas podem ser lidos)
+function linhasPDF(items){
+  const its = items.filter(i => i.str !== undefined && i.str !== "").map(i => ({s:i.str, x:i.transform[4], y:i.transform[5], w:i.width || 0, h:Math.abs(i.transform[3]) || Math.abs(i.height) || 10}));
+  its.sort((a, b) => b.y - a.y || a.x - b.x);
+  const linhas = [];
+  for(const it of its){ const l = linhas[linhas.length - 1]; if(l && Math.abs(l.y - it.y) <= Math.max(2, it.h * 0.4)) l.its.push(it); else linhas.push({y:it.y, its:[it]}); }
+  return linhas.map(l => {
+    l.its.sort((a, b) => a.x - b.x); let out = "", fim = null;
+    for(const it of l.its){
+      if(fim !== null){ const gap = it.x - fim; if(gap > Math.max(14, it.h * 1.5)) out = out.trimEnd() + " | "; else if(gap > it.h * 0.18 && !/\s$/.test(out) && !/^\s/.test(it.s)) out += " "; }
+      out += it.s; fim = it.x + it.w;
+    }
+    return out.replace(/[ \t]{2,}/g, " ").trim();
+  }).filter(Boolean).join("\n");
+}
 async function readFile(file){
   const n = file.name.toLowerCase();
   if(/\.(jpe?g|png)$/.test(n)){ if(!imgLim) throw new Error("Esta tela não aceita imagens. Envie em PDF."); return {text:"", images:[file]}; }
@@ -1115,7 +1142,7 @@ async function readFile(file){
     const parts = [];
     for(let p = 1; p <= pdf.numPages; p++){
       const c = await (await pdf.getPage(p)).getTextContent();
-      parts.push(`--- página ${p} ---\n` + c.items.map(i => i.str + (i.hasEOL ? "\n" : " ")).join(""));
+      parts.push(`--- página ${p} ---\n` + linhasPDF(c.items));
     }
     const text = parts.join("\n");
     const scanned = text.replace(/--- página \d+ ---|\s/g,"").length < 60 * pdf.numPages;
@@ -2494,6 +2521,26 @@ function dataDoTexto(t){
   if(!m) return ""; const mes = ["janeiro","fevereiro","marco","abril","maio","junho","julho","agosto","setembro","outubro","novembro","dezembro"].indexOf(m[1]);
   const ult = new Date(+m[2], mes + 1, 0).getDate(); return `${m[2]}-${String(mes + 1).padStart(2, "0")}-${ult}`;
 }
+// quadro de itens escrito como texto (PDF sem divisão de colunas): "LOTE ITEM DESCRIÇÃO QTD UNIDADE"
+function itensDoTexto(arqs){
+  const UN = "(unid(?:ade)?s?\\.?|und\\.?|un\\.?|p[çc]s?\\.?|pe[çc]as?|cx\\.?|caixas?|pct\\.?|pacotes?|resmas?|kg|l|litros?|m[²³23]?|metros?|kits?|conjuntos?|cj\\.?|jogos?|pares?|rolos?|frascos?|gal[õo]es?|servi[çc]os?|meses|m[êe]s|horas?|di[áa]rias?|lotes?|licen[çc]as?|postos?)", Q = "(\\d{1,3}(?:\\\.\\d{3})*(?:,\\d+)?)";
+  const R1 = new RegExp(`^(?:(\\d{1,3})\\s+)?(\\d{1,3})\\s+(.{3,180}?)\\s+${Q}\\s+${UN}$`, "i"), R2 = new RegExp(`^(?:(\\d{1,3})\\s+)?(\\d{1,3})\\s+(.{3,180}?)\\s+${UN}\\s+${Q}$`, "i");
+  for(const a of arqs){
+    let dentro = false, itens = [];
+    for(const linha of a.texto.split("\n")){
+      const l = linha.replace(/\s*\|\s*/g, " ").replace(/\s{2,}/g, " ").trim(), L = l.toUpperCase();
+      if(/QTD|QUANT/.test(L) && /DESCRI|ESPECIFICA|OBJETO|PRODUTO|MATERIAL|SERVI/.test(L) && l.length < 160){ dentro = true; itens = []; continue; }
+      if(!dentro || !l) continue;
+      let m = l.match(R1), q, un, d, lote;
+      if(m){ lote = m[1]; d = m[3]; q = m[4]; un = m[5]; } else if((m = l.match(R2))){ lote = m[1]; d = m[3]; un = m[4]; q = m[5]; }
+      if(m){ itens.push({q, un:normUn(un), d:d.trim(), lote}); continue; }
+      if(!itens.length) continue;
+      if(/^\d+(\.\d+)+\s|^\d+\.\s|total/i.test(l) || l.length > 120){ break; }
+      if(!/^\d/.test(l)) itens[itens.length - 1].d += " " + l;
+    }
+    if(itens.length) return {v:itens.map(i => `${i.q} ${i.un} – ${i.d}${i.lote ? ` (Lote ${i.lote})` : ""}`).join("\n"), trecho:`quadro com ${plural(itens.length, "item", "itens")}`, arquivo:a.nome};
+  }
+}
 function analisarLocal(arqs){
   // quando há Word e PDF do mesmo documento, usa o Word
   const porTipo = {}; arqs.forEach(a => { const ja = porTipo[a.tipo]; if(!ja || (/\.pdf$/i.test(ja.nome) && !/\.pdf$/i.test(a.nome))) porTipo[a.tipo] = a; });
@@ -2508,7 +2555,7 @@ function analisarLocal(arqs){
   busca("cargo", /Elaborado por\s*:[^\n–]+–\s*([^\n|]{3,80})/i);
   busca("email", /E-?mail\s*:\s*([\w.+-]+@[\w-]+(?:\.[\w-]+)+)/i);
   busca("numero", /(?:N[uú]mero do Processo|PROCESSO ADMINISTRATIVO N[ºo°]?|Processo n[ºo°]\.?)\s*:?\s*(\d{1,5}\s*\/\s*\d{4})/i, v => v.replace(/\s/g, ""));
-  busca("objeto", /\bObjeto\s*:\s*([^\n|]{8,300})/i);
+  busca("objeto", /\bObjeto\s*:\s*([^\n|]{8,300}(?:\n[a-zà-ú][^\n|]{0,200})*)/i, v => v.replace(/\s*\n\s*/g, " "));
   busca("valor", /valor (?:total )?estimado[^\n]{0,80}?R\$\s*([\d.]+,\d{2})/i);
   busca("valor", /TOTAL\s*:?\s*\|?\s*R\$\s*([\d.,]+)/i, v => { const x = parseDinheiro(v); return x ? x.toLocaleString("pt-BR", {minimumFractionDigits:2}) : ""; });
   busca("vigencia", /Vig[eê]ncia[^\n]{0,50}?(\d{1,2})\s*(?:\([a-zç]+\)\s*)?meses/i);
@@ -2524,7 +2571,10 @@ function analisarLocal(arqs){
   busca("criterio", /Crit[eé]rio de Julgamento\s*:\s*([^\n]{3,80})/i, v => /desconto/i.test(v) ? "desconto" : /menor/i.test(v) ? "menor" : "");
   busca("parcelamento", /(parcelamento do objeto em|por lote|lotes? individuais|por item)[^\n]{0,40}/i, (v, m) => /item/i.test(m[0]) ? "item" : "lote");
   busca("pca", /(?:compat[ií]vel com|previst[ao] no|consta do) (?:o )?Plano (?:Anual )?de Contrata[cç][oõ]es/i, () => "sim");
-  const it = itensDasTabelas(fontes); if(it) put("itens", it.v, it.trecho, it.arquivo);
+  const it = itensDasTabelas(fontes) || itensDoTexto(fontes); if(it) put("itens", it.v, it.trecho, it.arquivo);
+  const NOME = "[A-ZÀ-Ú][\\wÀ-ú]+(?: (?:e|de|da|do|dos|das) [A-ZÀ-Ú][\\wÀ-ú]+| [A-ZÀ-Ú][\\wÀ-ú]+){0,4}";
+  busca("unidade", new RegExp(`\\b((?:Setor|Departamento|Divis[ãa]o|Secretaria(?: Municipal)?) de ${NOME})`));
+  busca("diretoria", new RegExp(`\\b(Diretoria(?: Municipal)? de ${NOME})`));
   { const base = [campos.objeto?.v || "", campos.itens?.v || "", ...fontes.filter(a => ["DFD","ETP","TR"].includes(a.tipo)).map(a => a.texto.slice(0, 3000))].join(" "); const tp = detectarTipo(base); put("tipo", tp, "identificado pelo conteúdo: " + NOME_TIPO[tp], fontes[0]?.nome); }
   // textos das seções a partir dos títulos de cada documento
   const textos = {DFD:{}, ETP:{}, TR:{}}; let riscosTxt = "";
@@ -2570,7 +2620,7 @@ async function receberArquivos(files){
     catch(err){ falhas.push(file.name); }
   }
   analisarArquivos();
-  if(sample && !claudeManual && imp.res && imp.arquivos.length) setTimeout(() => completarComClaude(), 0);   // completa sozinho o que a leitura direta não achou
+  if(sample && imp.res && imp.arquivos.length) setTimeout(() => completarComClaude(), 0);   // completa sozinho o que a leitura direta não achou
   if(falhas.length){ imp.msg = (imp.res ? imp.msg + "<br>" : "") + `Não consegui ler: ${esc(falhas.join(", "))}. Se for PDF escaneado, envie o arquivo em Word.`; imp.erro = !imp.res; }
   renderImport();
 }
@@ -2607,7 +2657,7 @@ DOCUMENTOS:${corpus(arqs, "DFD", 30000, 20000, 90000)}`, {cache:false});
     });
     base.usarTextos = Object.values(base.textos).some(o => Object.keys(o).length);
     imp.msg = `Com o Claude: ${contaRes(base)}. Confira e aplique.`; imp.erro = false;
-  } catch(e){ imp.msg = `O Claude não conseguiu completar (${esc(errText(e))}). A leitura direta continua valendo.`; imp.erro = true; }
+  } catch(e){ if(e?.code === "cancelled"){ imp.msg = `Claude cancelado. O que a leitura direta encontrou continua abaixo; para completar o resto, clique em <b>Completar com o Claude</b>.`; imp.erro = false; } else { imp.msg = `O Claude não conseguiu completar (${esc(errText(e))}). A leitura direta continua valendo.`; imp.erro = true; } }
   imp.fase = ""; renderImport();
 }
 function revisaoImport(){
@@ -2763,7 +2813,8 @@ function cardDescricao(){
       <p class="muted" style="font-size:12.5px">Envie ETP, TR ou DFD de outro órgão para servir de referência de estrutura e cláusulas técnicas. Os números e nomes deles não são copiados.
         Para achar: <a href="${esc(`https://pncp.gov.br/app/editais?q=${encodeURIComponent(q)}&status=encerradas`)}" target="_blank" rel="noopener">contratações parecidas no PNCP ${ico("i-ext")}</a>. Abra uma, baixe o ETP ou TR nos arquivos e envie aqui.</p>
       <div class="row"><label class="btn sm">${ico("i-upload")}Enviar modelos de referência<input type="file" id="dsRefs" multiple accept=".docx,.pdf,.txt" hidden></label>
-        ${desc.refs.map((r, k) => `<span class="chip">${esc(r.nome)}<button data-dsrm="${k}" aria-label="Tirar">${ico("i-x")}</button></span>`).join("")}</div></div>
+        ${desc.refs.map((r, k) => `<span class="chip">${esc(r.nome)}<button data-dsrm="${k}" aria-label="Tirar">${ico("i-x")}</button></span>`).join("")}</div>
+      ${desc.refs.length ? `<div class="msg" style="margin-top:8px"><span style="flex:1">Este documento é de um <b>processo anterior seu</b> e você quer montar o novo a partir dele (itens, setor, prazos e textos)? Use como base: os dados dele são aproveitados e você ajusta o que mudou.</span>${desc.refs.map((r, k) => `<button class="btn sm pri" data-dsbase="${k}">Usar ${esc(r.nome.length > 28 ? r.nome.slice(0, 26) + "…" : r.nome)} como base</button>`).join("")}</div>` : ""}</div>
     <div class="row"><button class="btn pri" id="dsGerar" ${desc.fase ? "disabled" : ""}>${desc.fase ? '<span class="spin"></span> Montando o processo…' : ico("i-spark") + (sample ? "Montar o processo com o Claude" : "Usar esta descrição")}</button>
       ${sample ? "" : `<span class="muted" style="font-size:12.5px">Sem o Claude nesta tela: a descrição vira o objeto e a justificativa, e os documentos são montados pelo formulário.</span>`}</div>
     ${desc.msg ? `<div class="msg${desc.erro ? " err" : ""}">${desc.msg}</div>` : ""}
@@ -2833,6 +2884,8 @@ $("#impBox").addEventListener("click", e => {
   const ini = e.target.closest("[data-ini]"); if(ini){ inicioModo = ini.dataset.ini; renderImport(); return; }
   if(e.target.closest("#dsGerar")){ gerarPorDescricao(); return; }
   const rm = e.target.closest("[data-dsrm]"); if(rm){ desc.refs.splice(+rm.dataset.dsrm, 1); renderImport(); }
+  const bs = e.target.closest("[data-dsbase]");
+  if(bs){ const r = desc.refs[+bs.dataset.dsbase]; if(!r) return; imp = {arquivos:[{nome:r.nome, tipo:tipoArquivo(r.nome, r.texto), texto:r.texto}]}; inicioModo = "docs"; analisarArquivos(); renderImport(); if(sample && imp.res) setTimeout(() => completarComClaude(), 0); }
 });
 $("#impBox").addEventListener("input", e => { if(e.target.id === "dsTexto") desc.texto = e.target.value; });
 $("#impBox").addEventListener("change", async e => {
@@ -3771,7 +3824,7 @@ async function anexarComprovantesZip(zip){
 
 
 /* ============ v4.5: retorno dos usuários (problemas e sugestões) ============ */
-const VERSAO_APP = "5.0", errosRecentes = [];
+const VERSAO_APP = "5.1", errosRecentes = [];
 window.addEventListener("error", e => { errosRecentes.push(String(e.message || e).slice(0, 200)); if(errosRecentes.length > 5) errosRecentes.shift(); });
 window.addEventListener("unhandledrejection", e => { errosRecentes.push("promessa: " + String(e.reason?.message || e.reason || "").slice(0, 200)); if(errosRecentes.length > 5) errosRecentes.shift(); });
 let retornos = [], ouvindoRetornos = false;
