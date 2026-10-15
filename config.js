@@ -11,5 +11,5 @@ window.MESA_CONFIG = {
   // Deixe a lista vazia para, no teste, todos poderem.
   admins: [],
   // mude para true depois de criar a função "claude" no Supabase (opcional, tem custo na Anthropic)
-  claude: false
+  claude: true
 };
