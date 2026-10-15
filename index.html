@@ -527,7 +527,7 @@ details.colar .btn{margin-top:8px;align-self:flex-start}
       <button data-view="conf"><svg class="i"><use href="#i-list"/></svg><span>Conferir documentos<small>Habilitação do licitante</small></span></button>
       <button data-view="docs"><svg class="i"><use href="#i-doc"/></svg><span>Processos<small>Criar e consultar DFD, ETP e TR</small></span></button>
       <button data-view="cfg"><svg class="i"><use href="#i-shield"/></svg><span>Configurações<small>Órgão, decreto e modelos</small></span></button>
-      <button data-view="nov"><svg class="i"><use href="#i-spark"/></svg><span>Novidades<small>O que mudou na v5.2</small></span></button>
+      <button data-view="nov"><svg class="i"><use href="#i-spark"/></svg><span>Novidades<small>O que mudou na v5.4</small></span></button>
     </nav>
     <div class="me" id="me" hidden></div>
     <button class="tema" id="btnTema" type="button"></button>
@@ -691,7 +691,22 @@ details.colar .btn{margin-top:8px;align-self:flex-start}
       </div>
       <div class="nov">
         <article class="card ver">
-          <h2>Versão 5.2 <span class="tag">atual</span> <small>15/10/2026</small></h2>
+          <h2>Versão 5.4 <span class="tag">atual</span> <small>15/10/2026</small></h2>
+          <dl class="chg"><dt><span class="fix">Corrigido</span></dt><dd><ul>
+            <li><b>Preços do buscador</b>: preços diferentes da mesma licitação (itens diferentes com o mesmo valor) eram tratados como repetidos e ficavam de fora. Agora só ficam de fora os de fato repetidos, e a mensagem diz quantos foram e por quê.</li>
+            <li><b>Dados do processo</b>: órgão, cidade, autoridade competente, diretoria e responsável pela assinatura já vêm preenchidos com o que o sistema sabe (Configurações e o seu perfil). Dá para alterar normalmente.</li>
+          </ul></dd></dl>
+        </article>
+        <article class="card ver">
+          <h2>Versão 5.3 <small>15/10/2026</small></h2>
+          <dl class="chg"><dt><span class="fix">Corrigido</span></dt><dd><ul>
+            <li><b>Escolher arquivos clicando</b> (sem arrastar) agora funciona. A janela de arquivos às vezes "perdia" a escolha quando a tela se atualizava enquanto ela estava aberta.</li>
+            <li><b>Menos dados errados</b>: o Claude agora confere também os campos que a leitura automática já preencheu e corrige os errados, por exemplo o setor que publica o edital no lugar de quem pede a compra. Os corrigidos aparecem com "corrigido pelo Claude" e o motivo.</li>
+            <li>Setor e diretoria não pegam mais Compras, Licitações, Jurídico e outros setores que só conduzem o processo.</li>
+          </ul></dd></dl>
+        </article>
+        <article class="card ver">
+          <h2>Versão 5.2 <small>15/10/2026</small></h2>
           <dl class="chg"><dt><span class="fix">Corrigido</span></dt><dd><ul>
             <li><b>Itens de editais e TRs em PDF</b>: quadros com a descrição em várias linhas (acima e abaixo da linha com número, unidade e quantidade) agora são lidos por inteiro. No teste com o edital de material de expediente, saíram 293 dos 298 itens com descrição completa, unidade e quantidade (o Claude completa o resto).</li>
             <li>Os dados lidos <b>entram no processo</b> mesmo que você siga direto para os dados da compra, sem precisar achar o botão "Aplicar". O botão também aparece no topo, junto da mensagem.</li>
@@ -2636,8 +2651,10 @@ function analisarLocal(arqs){
   busca("pca", /(?:compat[ií]vel com|previst[ao] no|consta do) (?:o )?Plano (?:Anual )?de Contrata[cç][oõ]es/i, () => "sim");
   const it = itensDeQuadro(fontes) || itensDasTabelas(fontes) || itensDoTexto(fontes); if(it) put("itens", it.v, it.trecho, it.arquivo);
   const NOME = "[A-ZÀ-Ú][\\wÀ-ú]+(?: (?:e|de|da|do|dos|das) [A-ZÀ-Ú][\\wÀ-ú]+| [A-ZÀ-Ú][\\wÀ-ú]+){0,4}";
-  busca("unidade", new RegExp(`\\b((?:Setor|Departamento|Divis[ãa]o|Secretaria(?: Municipal)?) de ${NOME})`));
-  busca("diretoria", new RegExp(`\\b(Diretoria(?: Municipal)? de ${NOME})`));
+  const condutor = v => /compras|licita|contrat|jur[ií]dic|protocolo|gabinete|procuradoria|controle interno|tesouraria/i.test(v);
+  const primeiraBoa = (k, rx) => { for(const a of fontes){ if(campos[k]) return; for(const m of a.texto.matchAll(rx)){ if(!condutor(m[1])){ put(k, m[1], m[0], a.nome); return; } } } };
+  primeiraBoa("unidade", new RegExp(`\\b((?:Setor|Departamento|Divis[ãa]o|Secretaria(?: Municipal)?) de ${NOME})`, "g"));
+  primeiraBoa("diretoria", new RegExp(`\\b(Diretoria(?: Municipal)? de ${NOME})`, "g"));
   { const base = [campos.objeto?.v || "", campos.itens?.v || "", ...fontes.filter(a => ["DFD","ETP","TR"].includes(a.tipo)).map(a => a.texto.slice(0, 3000))].join(" "); let tp = detectarTipo(base); if(tp !== "bens" && campos.itens && (campos.itens.v.match(/^[\d.,]+ (un\.|cx\.|pct\.|resma|kg|l|peça|kit|par|rolo|conjunto|bloco|frasco|pote|tubo|caixa|pacote)/gim) || []).length >= Math.max(2, campos.itens.v.split("\n").length / 2)) tp = "bens"; put("tipo", tp, "identificado pelo conteúdo: " + NOME_TIPO[tp], fontes[0]?.nome); }
   // textos das seções a partir dos títulos de cada documento
   const textos = {DFD:{}, ETP:{}, TR:{}}; let riscosTxt = "";
@@ -2664,7 +2681,7 @@ function cardImport(){
   return `<div class="card fcard imp" id="cardImport"><h3><span class="n">${ico("i-upload")}</span>Importar de documentos que você já tem</h3>
     <p class="muted" style="font-size:13.5px">Envie DFD, ETP, TR, cotações ou a planilha de cálculo de um processo parecido (Word, PDF ou Excel). A página lê os títulos, campos, tabelas, preços e links e propõe o preenchimento. Você confere e aplica.</p>
     <label class="f full" style="margin:6px 0 12px"><span>O que fazer com estes documentos? <small class="muted">(opcional, o Claude segue o que você escrever)</small></span><textarea id="impInstr" rows="2" placeholder="Ex.: É o pregão do ano passado. Use só os itens de papelaria e atualize as quantidades para metade. O novo processo é da Diretoria de Educação.">${esc(instrImp)}</textarea></label>
-    <label class="drop" id="impDrop"><span class="ic">${ico("i-upload")}</span><b>Arraste os arquivos aqui ou clique para escolher</b><span>Pode enviar vários de uma vez</span><input type="file" id="impFiles" multiple accept=".docx,.pdf,.xlsx,.xls,.csv,.txt" hidden></label>
+    <label class="drop" id="impDrop" for="impFilesFixo"><span class="ic">${ico("i-upload")}</span><b>Arraste os arquivos aqui ou clique para escolher</b><span>Pode enviar vários de uma vez</span></label>
     ${a.length ? `<div class="imp-files">${a.map((x, k) => `<span class="chip">${esc(x.nome)} <small class="muted">${x.tipo}</small><button data-imprm="${k}" aria-label="Tirar ${esc(x.nome)}">${ico("i-x")}</button></span>`).join("")}<button class="link mute" id="impLimpa">Limpar tudo</button></div>` : ""}
     ${imp?.msg ? `<div class="msg${imp.erro ? " err" : ""}"><span style="flex:1">${imp.msg}</span>${imp?.res && !imp.fase ? `<button class="btn sm pri" data-aplica-topo>${ico("i-check")}Aplicar ao processo</button>` : ""}</div>` : ""}
     ${imp?.res ? revisaoImport() : ""}
@@ -2696,12 +2713,27 @@ async function completarComClaude(){
   imp.fase = "lendo"; imp.msg = '<span class="spin"></span> A leitura direta terminou. O Claude está completando sozinho o que faltou (campos e textos). Leva de 1 a 3 minutos; você já pode conferir o que está abaixo.'; renderImport();
   try {
     const faltam = FORM.flatMap(([,fs]) => fs).filter(x => !base.campos[x[0]] || (instrImp.trim() && x[0] === "itens")).map(([k,l,type,o]) => `- ${k} (${l})${type === "select" ? ": um destes códigos " + o.filter(x => x[0]).map(x => x[0]).join(" | ") : type === "date" ? ": data AAAA-MM-DD" : ""}`).join("\n");
-    const r1 = await sample.json(`${blocoInstr()}Leia os documentos de um processo de contratação pública e extraia SOMENTE estes campos, se aparecerem:
+    const lidos = Object.entries(base.campos).filter(([k]) => k !== "itens" && FIELD[k]).map(([k, x]) => `- ${k} (${FIELD[k][1]}): ${String(x.v).slice(0, 300)}`).join("\n");
+    const r1 = await sample.json(`${blocoInstr()}Leia os documentos de um processo de contratação pública.
+
+PARTE 1 – CONFIRA estes campos que a leitura automática já preencheu (ela pode errar: pegar o setor que publica o edital em vez do que pede a compra, um número de outro documento, uma frase que não é o objeto etc.). Para cada um que estiver ERRADO, devolva o valor certo tirado dos documentos (ou "" se o certo não aparece neles). Não devolva os que estão certos.
+${lidos || "(nenhum)"}
+
+PARTE 2 – EXTRAIA estes campos que ainda faltam, se aparecerem:
 ${faltam}
 Para "itens": uma linha por item, no formato "QUANTIDADE UNIDADE – descrição" (ex.: "300 un. – Pincel redondo n. 10, amarelo"), seguindo as instruções do servidor se houver (filtrar, agrupar, ajustar quantidades). Não invente; omita o que não estiver nos documentos.
-Responda só com JSON: {"campos":{"campo":{"valor":"","trecho":"","arquivo":""}}}
+Dicas: "unidade" e "diretoria" são de quem PEDE a contratação (não Compras, Licitações ou Jurídico, que só conduzem o processo); "objeto" é uma frase curta do que se compra ou contrata, sem "aquisição de"; "numero" é o nº do processo administrativo.
+Responda só com JSON: {"corrigir":{"campo":{"valor":"","motivo":""}},"campos":{"campo":{"valor":"","trecho":"","arquivo":""}}}
 
 DOCUMENTOS:${corpus(arqs, "DFD", 30000, 20000, 90000)}`, {cache:false});
+    Object.entries(r1?.corrigir || {}).forEach(([k, x]) => {
+      if(!FIELD[k] || !base.campos[k] || k === "itens" || !x) return;
+      let v = String(x.valor ?? "").trim();
+      if(!v){ delete base.campos[k]; return; }
+      if(FIELD[k][2] === "select" && !FIELD[k][3].some(o => o[0] === v)) return; if(FIELD[k][2] === "date"){ v = normDate(v); if(!v) return; }
+      if(k === "valor") v = num(v).toLocaleString("pt-BR", {minimumFractionDigits:2});
+      base.campos[k] = {v, trecho:"corrigido pelo Claude" + (x.motivo ? ": " + String(x.motivo).slice(0, 140) : ""), arquivo:"(Claude)", usar:true, corrigido:true};
+    });
     Object.entries(r1?.campos || {}).forEach(([k, x]) => {
       if(!FIELD[k] || (base.campos[k] && !(instrImp.trim() && k === "itens")) || !x || x.valor == null || String(x.valor).trim() === "") return;
       let v = String(x.valor).trim(); if(FIELD[k][2] === "select" && !FIELD[k][3].some(o => o[0] === v)) return; if(FIELD[k][2] === "date") v = normDate(v); if(!v) return;
@@ -2884,7 +2916,7 @@ function cardDescricao(){
     <div class="ref-box"><b>Modelos de outros municípios (opcional)</b>
       <p class="muted" style="font-size:12.5px">Envie ETP, TR ou DFD de outro órgão para servir de referência de estrutura e cláusulas técnicas. Os números e nomes deles não são copiados.
         Para achar: <a href="${esc(`https://pncp.gov.br/app/editais?q=${encodeURIComponent(q)}&status=encerradas`)}" target="_blank" rel="noopener">contratações parecidas no PNCP ${ico("i-ext")}</a>. Abra uma, baixe o ETP ou TR nos arquivos e envie aqui.</p>
-      <div class="row"><label class="btn sm">${ico("i-upload")}Enviar modelos de referência<input type="file" id="dsRefs" multiple accept=".docx,.pdf,.txt" hidden></label>
+      <div class="row"><label class="btn sm" for="dsRefsFixo">${ico("i-upload")}Enviar modelos de referência</label>
         ${desc.refs.map((r, k) => `<span class="chip">${esc(r.nome)}<button data-dsrm="${k}" aria-label="Tirar">${ico("i-x")}</button></span>`).join("")}</div>
       ${desc.refs.length ? `<div class="msg" style="margin-top:8px"><span style="flex:1">Este documento é de um <b>processo anterior seu</b> e você quer montar o novo a partir dele (itens, setor, prazos e textos)? Use como base: os dados dele são aproveitados e você ajusta o que mudou.</span>${desc.refs.map((r, k) => `<button class="btn sm pri" data-dsbase="${k}">Usar ${esc(r.nome.length > 28 ? r.nome.slice(0, 26) + "…" : r.nome)} como base</button>`).join("")}</div>` : ""}</div>
     <div class="row"><button class="btn pri" id="dsGerar" ${desc.fase ? "disabled" : ""}>${desc.fase ? '<span class="spin"></span> Montando o processo…' : ico("i-spark") + (sample ? "Montar o processo com o Claude" : "Usar esta descrição")}</button>
@@ -3246,12 +3278,12 @@ async function baixarBuscador(btn){
 }
 function importarPrecosTexto(txt){
   const m = String(txt).match(/MESA-PRECOS\s+(\{[\s\S]*\})/); if(!m) throw new Error("Não reconheci o texto. Cole exatamente o que o buscador copiou.");
-  const d = JSON.parse(m[1]), itens = itensLista(); let n = 0;
+  const d = JSON.parse(m[1]), itens = itensLista(); let n = 0; importarPrecosTexto.rep = 0; importarPrecosTexto.sem = 0;
   d.itens.forEach((x, k) => {
     let i = itens[k] && norm(itens[k].desc) === norm(x.desc) ? k : itens.findIndex(it => norm(it.desc) === norm(x.desc));
     if(i < 0){ const tk = tokens(x.desc); let melhor = -1, nota = 0; itens.forEach((it, j) => { const s = tokens(it.desc).filter(w => tk.includes(w)).length; if(s > nota){ nota = s; melhor = j; } }); i = melhor; }
-    if(i < 0) return;
-    x.precos.forEach(p => { if(precosItem(i).precos.some(q => q.link === p.link && num(q.v) === num(p.v))) return; precosItem(i).precos.push({v:num(p.v).toLocaleString("pt-BR", {minimumFractionDigits:2, maximumFractionDigits:4}), unidade:p.unidade || "", fonte:p.fonte || "publica", ref:p.ref || "", data:p.data || "", link:p.link || ""}); n++; });
+    if(i < 0){ importarPrecosTexto.sem += x.precos.length; return; }
+    x.precos.forEach(p => { if(precosItem(i).precos.some(q => q.link === p.link && num(q.v) === num(p.v) && (q.ref || "") === (p.ref || ""))){ importarPrecosTexto.rep++; return; } precosItem(i).precos.push({v:num(p.v).toLocaleString("pt-BR", {minimumFractionDigits:2, maximumFractionDigits:4}), unidade:p.unidade || "", fonte:p.fonte || "publica", ref:p.ref || "", data:p.data || "", link:p.link || ""}); n++; });
   });
   return n;
 }
@@ -3272,7 +3304,7 @@ $("#paper").addEventListener("click", e => {
   const b = e.target.closest("#mpBuscador"); if(b){ baixarBuscador(b); return; }
   const cs = e.target.closest("#mpCopiarSis"); if(cs){ const t = copiarParaSistema(); navigator.clipboard.writeText(t).then(() => { cs.textContent = "Copiado: cole em Preços no sistema online"; }).catch(() => { $("#mpColar").value = t; $("#mpColar").closest("details").open = true; $("#mpColar").select(); cs.textContent = "Selecionado: copie com Cmd+C"; }); return; }
   if(e.target.closest("#mpImportar")){
-    try { const n = importarPrecosTexto($("#mpColar").value); buscaGeral = {msg:`${plural(n, "preço adicionado", "preços adicionados")} a partir do buscador, cada um com o link da contratação.`}; save(); renderPrecos(); renderDocPick(); }
+    try { const n = importarPrecosTexto($("#mpColar").value), rp = importarPrecosTexto.rep, sm = importarPrecosTexto.sem; buscaGeral = {msg:`${plural(n, "preço adicionado", "preços adicionados")} a partir do buscador, cada um com o link da contratação.${rp ? ` ${plural(rp, "preço já estava", "preços já estavam")} no mapa e não foi repetido.` : ""}${sm ? ` ${plural(sm, "preço ficou", "preços ficaram")} de fora porque o item não existe mais neste processo (os itens mudaram depois de baixar o buscador; baixe o buscador de novo).` : ""}`}; save(); renderPrecos(); renderDocPick(); }
     catch(err){ const m = $("#mpGeralMsg"); m.className = "msg err"; m.textContent = err.message; }
   }
 });
@@ -3896,7 +3928,7 @@ async function anexarComprovantesZip(zip){
 
 
 /* ============ v4.5: retorno dos usuários (problemas e sugestões) ============ */
-const VERSAO_APP = "5.2", errosRecentes = [];
+const VERSAO_APP = "5.4", errosRecentes = [];
 window.addEventListener("error", e => { errosRecentes.push(String(e.message || e).slice(0, 200)); if(errosRecentes.length > 5) errosRecentes.shift(); });
 window.addEventListener("unhandledrejection", e => { errosRecentes.push("promessa: " + String(e.reason?.message || e.reason || "").slice(0, 200)); if(errosRecentes.length > 5) errosRecentes.shift(); });
 let retornos = [], ouvindoRetornos = false;
@@ -4455,6 +4487,30 @@ enriquecer = async function(docs){
   renderDocPick(); renderPaper();
 };
 
+
+/* ============ v5.3: seletores de arquivo fixos e conferência dos campos lidos ============ */
+(() => {
+  const css = "position:absolute;left:-9999px;width:1px;height:1px;opacity:0";
+  document.body.insertAdjacentHTML("beforeend", `<input type="file" id="impFilesFixo" multiple accept=".docx,.pdf,.xlsx,.xls,.csv,.txt" style="${css}" tabindex="-1"><input type="file" id="dsRefsFixo" multiple accept=".docx,.pdf,.txt" style="${css}" tabindex="-1">`);
+  $("#impFilesFixo").addEventListener("change", e => { const files = [...e.target.files]; e.target.value = ""; if(files.length) receberArquivos(files); });
+  $("#dsRefsFixo").addEventListener("change", async e => {
+    const files = [...e.target.files]; e.target.value = "";
+    for(const file of files){ try { const texto = await lerParaImportar(file); if(texto.trim()) desc.refs.push({nome:file.name, texto}); } catch(err){ desc.erro = true; desc.msg = `Não consegui ler ${esc(file.name)}.`; } }
+    renderImport();
+  });
+})();
+
+/* ---- dados do processo já preenchidos com o que o sistema sabe (órgão, cidade, autoridade, diretoria, responsável) ---- */
+function preencherDadosConhecidos(){
+  let mudou = false; const pad = S.padrao || {}, pf = (typeof perfis === "object" && meuId) ? perfis[meuId] || {} : {};
+  const poe = (k, v) => { v = String(v || "").trim(); if(v && !fr(k)){ S.f[k] = v; mudou = true; } };
+  poe("orgao", derivado("orgao")); poe("cidade", derivado("cidade")); poe("autoridade", pad.autoridade);
+  poe("diretoria", pf.diretoria || pad.diretoria);
+  if(remoto() && meuId) poe("responsavel", nomesCache[meuId]);
+  if(mudou) save();
+}
+const _renderEditor53 = renderEditor;
+renderEditor = function(){ try { if(S.docMode === "editar") preencherDadosConhecidos(); } catch(e){} _renderEditor53(); };
 /* ============ navegação ============ */
 function show(v){
   view = v;
