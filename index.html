@@ -332,6 +332,7 @@ input.falta{border-color:var(--warn-ink)!important;background:color-mix(in srgb,
 .badge{font-style:normal;background:var(--brand);color:#fff;border-radius:999px;padding:1px 7px;font-size:11px;margin-left:4px}
 .resp{background:color-mix(in srgb,var(--brand) 8%,transparent);border-radius:8px;padding:6px 8px;margin:4px 0;font-size:13px}
 .meus{margin-top:12px;font-size:13px}.meus summary{cursor:pointer;font-weight:700}.chip-s{font-size:11px;font-weight:700;padding:2px 8px;border-radius:999px;background:var(--soft)}.chip-s.s-resolvido{background:color-mix(in srgb,var(--ok) 18%,transparent)}
+.mpasso{display:flex;gap:10px;align-items:center;margin:8px 0;flex-wrap:wrap}.mpasso>b{width:18px}.mpasso textarea{flex:1;min-width:240px;box-sizing:border-box}
 .pc-h{display:flex;flex-wrap:wrap;gap:6px 12px;align-items:baseline}
 .pc-h b{color:var(--brand)}
 .ptbl th{font-size:11.5px;white-space:nowrap}
@@ -526,7 +527,7 @@ details.colar .btn{margin-top:8px;align-self:flex-start}
       <button data-view="conf"><svg class="i"><use href="#i-list"/></svg><span>Conferir documentos<small>Habilitação do licitante</small></span></button>
       <button data-view="docs"><svg class="i"><use href="#i-doc"/></svg><span>Processos<small>Criar e consultar DFD, ETP e TR</small></span></button>
       <button data-view="cfg"><svg class="i"><use href="#i-shield"/></svg><span>Configurações<small>Órgão, decreto e modelos</small></span></button>
-      <button data-view="nov"><svg class="i"><use href="#i-spark"/></svg><span>Novidades<small>O que mudou na v4.9</small></span></button>
+      <button data-view="nov"><svg class="i"><use href="#i-spark"/></svg><span>Novidades<small>O que mudou na v5.0</small></span></button>
     </nav>
     <div class="me" id="me" hidden></div>
     <button class="tema" id="btnTema" type="button"></button>
@@ -690,7 +691,13 @@ details.colar .btn{margin-top:8px;align-self:flex-start}
       </div>
       <div class="nov">
         <article class="card ver">
-          <h2>Versão 4.9 <span class="tag">atual</span> <small>15/10/2026</small></h2>
+          <h2>Versão 5.0 <span class="tag">atual</span> <small>15/10/2026</small></h2>
+          <dl class="chg"><dt><span class="add">Adicionado</span></dt><dd><ul>
+            <li><b>Claude por copiar e colar (grátis).</b> Onde o Claude não está ligado direto (site de teste e versão para computador), Enriquecer, completar a importação, gerar pela descrição, sugerir lacunas e riscos funcionam assim: o sistema monta o pedido, você copia, cola no claude.ai com a sua conta gratuita e cola a resposta de volta. O enriquecimento pede um documento inteiro de uma vez.</li>
+          </ul></dd></dl>
+        </article>
+        <article class="card ver">
+          <h2>Versão 4.9 <small>15/10/2026</small></h2>
           <dl class="chg"><dt><span class="add">Adicionado</span></dt><dd><ul>
             <li><b>Base legal com vários documentos</b> (Configurações): envie quantos decretos, normas e a própria Lei 14.133/2021 quiser, de uma vez. Cada um pode ser ligado ou desligado. Os decretos e normas são citados nos textos, e a Lei serve para o Claude conferir o número e o conteúdo exato dos artigos.</li>
             <li><b>Preencher lacunas</b>: nos documentos, um painel lista todas as informações que faltam no DFD, ETP e TR, com um campo para cada uma. A resposta entra em todos os lugares onde aquela lacuna aparece. O Claude pode sugerir as respostas a partir do que já existe no processo.</li>
@@ -1071,8 +1078,9 @@ let sample = null, downloads = null, imgLim = null;
     if(db){ try { await iniciarCompartilhado(); } catch(e){ db = null; } }
     if(sample){ try { imgLim = (await sample.limits()).images || null; } catch(e){} }
   }
+  if(!sample){ sample = sampleManual; claudeManual = true; }
   $("#ai").classList.toggle("on", !!sample);
-  $("#ai span").textContent = sample ? "Claude conectado" : window.MESA_WEB ? "Busca no PNCP ativa · Claude não ligado" : !window.claude ? "Versão para computador · busca no PNCP ativa" : "Claude indisponível nesta tela";
+  $("#ai span").textContent = claudeManual ? "Claude por copiar e colar (grátis)" : sample ? "Claude conectado" : !window.claude ? "Versão para computador · busca no PNCP ativa" : "Claude indisponível nesta tela";
   renderUsuario(); renderAll();
 })();
 function errText(e){
@@ -1251,6 +1259,7 @@ async function handleFiles(files){
   }
 }
 async function analyze(file){
+  if(claudeManual) throw new Error("A leitura automática das certidões precisa do Claude ligado (versão do claude.ai). Confira este documento à mão.");
   const {text, images} = await readFile(file);
   const r = await sample.json(`Você confere documentos de habilitação de licitação (Lei 14.133/2021). O arquivo abaixo pode conter UM ou VÁRIOS documentos juntos (ex.: várias certidões num PDF só). Identifique CADA documento separadamente.
 
@@ -2561,7 +2570,7 @@ async function receberArquivos(files){
     catch(err){ falhas.push(file.name); }
   }
   analisarArquivos();
-  if(sample && imp.res && imp.arquivos.length) setTimeout(() => completarComClaude(), 0);   // completa sozinho o que a leitura direta não achou
+  if(sample && !claudeManual && imp.res && imp.arquivos.length) setTimeout(() => completarComClaude(), 0);   // completa sozinho o que a leitura direta não achou
   if(falhas.length){ imp.msg = (imp.res ? imp.msg + "<br>" : "") + `Não consegui ler: ${esc(falhas.join(", "))}. Se for PDF escaneado, envie o arquivo em Word.`; imp.erro = !imp.res; }
   renderImport();
 }
@@ -2584,7 +2593,7 @@ DOCUMENTOS:${corpus(arqs, "DFD", 30000, 20000, 90000)}`, {cache:false});
       base.campos[k] = {v, trecho:String(x.trecho || ""), arquivo:String(x.arquivo || "") + " (Claude)", usar:true};
     });
     const grupos = [];
-    for(const d of ["DFD","ETP","TR"]){ const v = DOCS[d].secs.filter(([k]) => !base.textos[d][k]); for(let k = 0; k < v.length; k += 4) grupos.push([d, v.slice(k, k + 4)]); }
+    for(const d of ["DFD","ETP","TR"]){ const v = DOCS[d].secs.filter(([k]) => !base.textos[d][k]); const G = claudeManual ? 99 : 4; for(let k = 0; k < v.length; k += G) grupos.push([d, v.slice(k, k + G)]); }
     let feitos = 0;
     await emLotes(grupos, 2, async ([d, secs]) => {
       const temDoc = arqs.some(a => a.tipo === d);
@@ -2792,7 +2801,7 @@ ${t}${refs ? "\n\nMODELOS DE REFERÊNCIA:" + refs.slice(0, 40000) : ""}`, {cache
     });
     const dados = Object.entries(campos).map(([k, x]) => `${FIELD[k][1]}: ${x.v}`).join("\n");
     const textos = {DFD:{}, ETP:{}, TR:{}}, grupos = [];
-    for(const d of ["DFD","ETP","TR"]){ const s = DOCS[d].secs; for(let k = 0; k < s.length; k += 4) grupos.push([d, s.slice(k, k + 4)]); }
+    for(const d of ["DFD","ETP","TR"]){ const s = DOCS[d].secs; const G = claudeManual ? 99 : 4; for(let k = 0; k < s.length; k += G) grupos.push([d, s.slice(k, k + G)]); }
     let feitos = 0;
     await emLotes(grupos, 2, async ([d, secs]) => {
       try {
@@ -3762,7 +3771,7 @@ async function anexarComprovantesZip(zip){
 
 
 /* ============ v4.5: retorno dos usuários (problemas e sugestões) ============ */
-const VERSAO_APP = "4.9", errosRecentes = [];
+const VERSAO_APP = "5.0", errosRecentes = [];
 window.addEventListener("error", e => { errosRecentes.push(String(e.message || e).slice(0, 200)); if(errosRecentes.length > 5) errosRecentes.shift(); });
 window.addEventListener("unhandledrejection", e => { errosRecentes.push("promessa: " + String(e.reason?.message || e.reason || "").slice(0, 200)); if(errosRecentes.length > 5) errosRecentes.shift(); });
 let retornos = [], ouvindoRetornos = false;
@@ -4226,6 +4235,99 @@ abrirRetorno = function(){
   setTimeout(marcarRespostas, 0);
 };
 setTimeout(() => { ouvirMeusRetornos(); }, 4000);
+
+
+/* ============ v5.0: Claude por copiar e colar (sem custo, quando a página não tem o Claude ligado) ============ */
+let claudeManual = false;
+const filaManual = []; let manualAberto = false, manualN = 0, cancelAte = 0;
+function sampleManual(input, opts = {}){
+  const prompt = typeof input === "string" ? input : (input.filter(m => m.role === "user").pop()?.content || "");
+  if(opts.images?.length) return Promise.reject(Object.assign(new Error("Imagens e PDFs escaneados precisam do Claude ligado (versão do claude.ai)."), {code:"not_granted"}));
+  if(Date.now() < cancelAte) return Promise.reject(Object.assign(new Error("Cancelado"), {code:"cancelled"}));
+  return new Promise((resolve, reject) => { filaManual.push({prompt, json:!!opts.__json, resolve, reject}); proximoManual(); });
+}
+sampleManual.json = async (input, opts = {}) => {
+  const {text} = await sampleManual(typeof input === "string" ? input + "\n\nIMPORTANTE: responda somente com o JSON pedido, sem nenhum comentário antes ou depois." : input, {...opts, __json:true});
+  return lerJSON(text);
+};
+sampleManual.limits = async () => ({images:null});
+function lerJSON(t){
+  const s = String(t || "").replace(/```(?:json)?/gi, "").trim(), i = s.search(/[\[{]/), j = Math.max(s.lastIndexOf("}"), s.lastIndexOf("]"));
+  if(i < 0 || j < i) throw new Error("A resposta não tem o JSON pedido.");
+  return JSON.parse(s.slice(i, j + 1));
+}
+function proximoManual(){
+  if(manualAberto || !filaManual.length) return;
+  const item = filaManual.shift(); manualAberto = true; manualN++;
+  let dlg = $("#dlgManual");
+  if(!dlg){ document.body.insertAdjacentHTML("beforeend", `<dialog id="dlgManual" class="rdlg"><h3>Usar o Claude (grátis, copiando e colando)</h3>
+    <p class="muted" style="font-size:13px;margin:4px 0 12px">Esta versão não tem o Claude ligado direto. Faça em 3 passos, com a sua conta gratuita do claude.ai:</p>
+    <div class="mpasso"><b>1.</b><button class="btn pri" id="manCopiar">${ico("i-copy")}Copiar o pedido</button><span class="muted" id="manTam"></span></div>
+    <div class="mpasso"><b>2.</b><a class="btn" href="https://claude.ai/new" target="_blank" rel="noopener">${ico("i-ext")}Abrir o Claude</a><span class="muted" style="font-size:12.5px">Cole o pedido (Cmd+V) e envie. Espere a resposta terminar e clique no botão de copiar dela.</span></div>
+    <div class="mpasso" style="align-items:flex-start"><b>3.</b><textarea id="manResp" rows="6" placeholder="Cole aqui a resposta do Claude (Cmd+V)"></textarea></div>
+    <div class="msg" id="manMsg"></div>
+    <div class="row" style="justify-content:space-between;margin-top:10px"><span class="muted" id="manCont" style="font-size:12.5px"></span><span class="row" style="gap:8px"><button class="btn ghost" id="manCancelar">Cancelar</button><button class="btn pri" id="manOk">${ico("i-check")}Usar esta resposta</button></span></div></dialog>`);
+    dlg = $("#dlgManual");
+    dlg.addEventListener("cancel", e => { e.preventDefault(); $("#manCancelar").click(); });
+  }
+  $("#manResp").value = ""; $("#manMsg").textContent = ""; $("#manMsg").className = "msg";
+  $("#manTam").textContent = `pedido ${manualN} · ${Math.round(item.prompt.length / 1000)} mil caracteres`;
+  $("#manCont").textContent = filaManual.length ? `Depois deste, ${plural(filaManual.length, "pedido", "pedidos")} na fila.` : "";
+  $("#manCopiar").onclick = async () => { try { await navigator.clipboard.writeText(item.prompt); $("#manCopiar").innerHTML = `${ico("i-check")}Copiado`; } catch(e){ $("#manResp").value = item.prompt; $("#manResp").select(); $("#manMsg").textContent = "Não consegui copiar sozinho: o pedido está na caixa abaixo, selecionado. Copie (Cmd+C), apague a caixa e depois cole a resposta."; } };
+  $("#manCopiar").innerHTML = `${ico("i-copy")}Copiar o pedido`;
+  const fechar = () => { manualAberto = false; dlg.close(); setTimeout(proximoManual, 50); };
+  $("#manOk").onclick = () => {
+    const t = $("#manResp").value.trim(); if(!t){ $("#manMsg").className = "msg err"; $("#manMsg").textContent = "Cole a resposta do Claude na caixa."; return; }
+    if(item.json){ try { lerJSON(t); } catch(e){ $("#manMsg").className = "msg err"; $("#manMsg").textContent = "A resposta não veio completa no formato pedido (JSON). Se o Claude parou no meio, peça a ele \"continue\" e cole a resposta inteira, ou peça de novo."; return; } }
+    item.resolve({text:t, truncated:false}); fechar();
+  };
+  $("#manCancelar").onclick = () => { cancelAte = Date.now() + 2000; item.reject(Object.assign(new Error("Cancelado"), {code:"cancelled"})); while(filaManual.length) filaManual.shift().reject(Object.assign(new Error("Cancelado"), {code:"cancelled"})); fechar(); };
+  dlg.showModal();
+}
+// o enriquecimento pede um documento inteiro de uma vez (em vez de uma seção por pedido)
+function promptDocManual(d){
+  const D = DOCS[d], decreto = f("decreto");
+  const dados = FORM.flatMap(([, fs]) => fs).filter(x => f(x[0])).map(x => `- ${x[1]}: ${x[2] === "select" ? (x[3].find(o => o[0] === f(x[0]))?.[1] || f(x[0])) : f(x[0])}`).join("\n");
+  const vistos = new Set(), trechos = [], lei = [];
+  D.secs.forEach(([k]) => { String(trechosDecreto(d, k) || "").split(/\n\n(?=\[)/).forEach(t => { if(t.trim() && !vistos.has(t)) { vistos.add(t); trechos.push(t); } }); String(trechosLei(d, k) || "").split(/\n\n(?=\[)/).forEach(t => { if(t.trim() && !vistos.has(t)) { vistos.add(t); lei.push(t); } }); });
+  return `Você é servidor público especialista em licitações e contratos, redigindo o ${D.title} (${D.law}) de um processo real da ${f("orgao") || "Prefeitura"}.
+
+Redija TODAS as seções listadas no fim, ampliando e aprofundando o texto-base de cada uma, sem perder nenhuma informação dele.
+
+DADOS INFORMADOS PELO SERVIDOR:
+${dados}
+
+INFORMAÇÕES JÁ EXISTENTES EM OUTRAS PARTES DO PROCESSO (antes de escrever [PREENCHER], procure o dado aqui):
+${contextoProcesso(d, "")}
+
+COMO ESCREVER:
+1. Use as informações do servidor e complemente com conteúdo técnico próprio do objeto "${f("objeto") || "informado"}", deixando o texto rico e específico, não genérico.
+2. Fundamente na Lei nº 14.133/2021, citando só dispositivos que você tem certeza que tratam do assunto (cada seção traz os artigos sugeridos).${lei.length ? `\n   Confira o número e o conteúdo dos artigos citados nestes trechos do texto oficial:\n${lei.join("\n\n").slice(0, 15000)}` : ""}
+3. ${decreto && trechos.length ? `Cite também os atos normativos abaixo, usando SOMENTE os artigos que aparecem nestes trechos e que tratem do assunto da seção (cada trecho indica entre colchetes de qual ato é):\n${trechos.join("\n\n").slice(0, 20000)}` : decreto ? `Mencione que a contratação observa o ${decreto}, sem citar números de artigos dele.` : "Não cite decreto."}
+4. Jurisprudência: no máximo uma destas por seção, se realmente pertinente: ${TCU.join("; ")}.
+5. Não invente números, quantidades, valores, datas, nomes ou fatos. Só escreva [PREENCHER: o que falta] quando o dado não estiver em nenhuma parte do processo; mantenha os [PREENCHER] do texto-base que não puder resolver.
+6. De 2 a 5 parágrafos por seção, português formal e claro. Listas podem usar "• " no início da linha.
+
+SEÇÕES (código – título – artigos sugeridos – texto-base):
+${D.secs.map(([k, t]) => `\n### ${k} – ${t} – ${LEI[d]?.[k] || ""}\n${textOf(d, k)}`).join("\n")}
+
+Responda somente com um JSON válido, sem nenhum texto antes ou depois, no formato {"codigo_da_secao": "texto da seção", ...}, com todas as seções acima (use os códigos exatamente como estão).`;
+}
+const _enriquecer50 = enriquecer;
+enriquecer = async function(docs){
+  if(!claudeManual) return _enriquecer50(docs);
+  const m = $("#docMsg"); let n = 0;
+  for(const [i, d] of docs.entries()){
+    m.className = "msg"; m.innerHTML = `<span class="spin"></span> Enriquecendo ${d}${docs.length > 1 ? ` (${i + 1} de ${docs.length})` : ""}: siga os passos na janela.`;
+    try {
+      const r = await sampleManual.json(promptDocManual(d));
+      DOCS[d].secs.forEach(([k]) => { const t = r?.[k]; if(typeof t === "string" && t.trim()){ guardarVersao(d, k, textOf(d, k), origemAtual(d, k)); S.texts[d][k] = t.trim(); S.src[d][k] = "claude"; n++; } });
+      save();
+    } catch(e){ if(e?.code === "cancelled"){ m.textContent = `Parado. ${plural(n, "seção enriquecida", "seções enriquecidas")}.`; renderDocPick(); renderPaper(); return; } m.className = "msg err"; m.textContent = errText(e); }
+  }
+  m.className = "msg"; m.textContent = `Pronto: ${plural(n, "seção enriquecida", "seções enriquecidas")} pelo Claude. Revise as citações antes de assinar; em "Versões" dá para voltar ao texto anterior.`;
+  renderDocPick(); renderPaper();
+};
 
 /* ============ navegação ============ */
 function show(v){
